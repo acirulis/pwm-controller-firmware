@@ -61,12 +61,13 @@ void setup() {
     neopixelWrite(RGB_LED_PIN, 0, 255, 0);
 
     // configure LED PWM functionalities
-    ledcSetup(ledChannel, freq, resolution);
+//    ledcSetup(ledChannel, freq, resolution);
     // attach the channel to the GPIO to be controlled
-    ledcAttachPin(BUTTON_PIN, ledChannel);
-    ledcWrite(ledChannel, 255);
+//    ledcAttachPin(BUTTON_PIN, ledChannel);
+//    ledcWrite(ledChannel, 255);
 }
 
 void loop() {
+    Serial.println("Tick");
     measure();
 }
