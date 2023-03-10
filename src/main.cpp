@@ -1,19 +1,67 @@
 #include <Arduino.h>
 #include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
+#include <PubSubClient.h>
 
 
-
-#define BUTTON_PIN 27
+#define PWM_PIN 48
 #define RGB_LED_PIN 38
+#define TACHO_PIN 47 // listen to IRQ
 
-// setting PWM properties
-const int freq = 10000;
+
+
+// PWM properties
+const int freq = 5000;
 const int ledChannel = 0;
 const int resolution = 8;
 
-const int TachoPin = 47;
+const char *mqtt_server = "207.154.238.45";
+const char *mqtt_user = "venti";
+const char *mqtt_password = "venti12pwm";
 
-int InterruptCounter, rpm;
+
+
+volatile int InterruptCounter;
+int rpm;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+int to_int(byte *payload, unsigned int length) {
+    char buffer[20];
+
+    memcpy(buffer, payload, length);
+    buffer[length] = '\0';
+
+    char *end = nullptr;
+    long value = strtol(buffer, &end, 10);
+
+// Check for conversion errors
+    if (end == buffer || errno == ERANGE) {
+        Serial.println("to_int conversion error.");
+        return 0;
+    } else {
+        return value;
+    }
+}
+
+
+void reconnect() {
+    client.setServer(mqtt_server, 1883);
+    while (!client.connected()) {
+        Serial.print("Attempting MQTT connection...");
+        // Attempt to connect
+        if (client.connect("pwm-controller-1", mqtt_user, mqtt_password)) {
+            Serial.println("connected");
+            client.subscribe("venti/12pwm");
+        } else {
+            Serial.print("failed, rc=");
+            Serial.print(client.state());
+            Serial.println(" rebooting in 5 secs.");
+            delay(5000);
+            ESP.restart();
+        }
+    }
+}
 
 void countup() {
     InterruptCounter++;
@@ -28,19 +76,29 @@ void display_rpm() {
 
 void measure() {
     InterruptCounter = 0;
-    attachInterrupt(digitalPinToInterrupt(TachoPin), countup, RISING);
+    attachInterrupt(digitalPinToInterrupt(TACHO_PIN), countup, RISING);
     delay(1000);
-    detachInterrupt(digitalPinToInterrupt(TachoPin));
+    detachInterrupt(digitalPinToInterrupt(TACHO_PIN));
     rpm = (InterruptCounter / 2) * 60;
     display_rpm();
 }
 
 
-void WifiManagerTimeout()
-{
+void WifiManagerTimeout() {
     Serial.println("Going to reboot from WifiManagerTimeout");
     ESP.restart();
 }
+
+void mqtt_callback(char *topic, byte *payload, unsigned int length) {
+    Serial.print("Message arrived [");
+    Serial.print(topic);
+    Serial.print("] ");
+    int pwm_value = to_int(payload, length);
+    Serial.print("Setting new PWM  value: ");
+    Serial.println(pwm_value);
+    ledcWrite(ledChannel, pwm_value);
+}
+
 
 void setup() {
     Serial.begin(115200);
@@ -60,14 +118,19 @@ void setup() {
     }
     neopixelWrite(RGB_LED_PIN, 0, 255, 0);
 
-    // configure LED PWM functionalities
-//    ledcSetup(ledChannel, freq, resolution);
-    // attach the channel to the GPIO to be controlled
-//    ledcAttachPin(BUTTON_PIN, ledChannel);
-//    ledcWrite(ledChannel, 255);
+    client.setCallback(mqtt_callback);
+
+    ledcSetup(ledChannel, freq, resolution);
+    ledcAttachPin(PWM_PIN, ledChannel);
+    ledcWrite(ledChannel, 0);
 }
 
 void loop() {
-    Serial.println("Tick");
-    measure();
+//    Serial.println("Tick");
+    if (!client.connected()) {
+        reconnect();
+    }
+    client.loop();
+
+    //measure();
 }
