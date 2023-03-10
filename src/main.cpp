@@ -8,7 +8,6 @@
 #define TACHO_PIN 47 // listen to IRQ
 
 
-
 // PWM properties
 const int freq = 5000;
 const int ledChannel = 0;
@@ -19,9 +18,11 @@ const char *mqtt_user = "venti";
 const char *mqtt_password = "venti12pwm";
 
 
-
 volatile int InterruptCounter;
+bool is_measuring;
+char msg[20];
 int rpm;
+
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -74,13 +75,19 @@ void display_rpm() {
     Serial.println(rpm);
 }
 
-void measure() {
+void measureTask(void *parameter) {
+    is_measuring = true;
     InterruptCounter = 0;
     attachInterrupt(digitalPinToInterrupt(TACHO_PIN), countup, RISING);
-    delay(1000);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
     detachInterrupt(digitalPinToInterrupt(TACHO_PIN));
     rpm = (InterruptCounter / 2) * 60;
     display_rpm();
+    sprintf(msg, "{\"rpm\": %i}", rpm);
+    client.publish("venti/tacho",msg);
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    is_measuring = false;
+    vTaskDelete(NULL);
 }
 
 
@@ -123,14 +130,16 @@ void setup() {
     ledcSetup(ledChannel, freq, resolution);
     ledcAttachPin(PWM_PIN, ledChannel);
     ledcWrite(ledChannel, 0);
+    is_measuring = false;
 }
 
 void loop() {
-//    Serial.println("Tick");
     if (!client.connected()) {
         reconnect();
     }
     client.loop();
 
-    //measure();
+    if (!is_measuring) {
+        xTaskCreate(measureTask, "measureTask", 10000, NULL, 1, NULL);
+    }
 }
