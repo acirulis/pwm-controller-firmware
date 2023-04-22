@@ -9,7 +9,7 @@
 
 
 // PWM properties
-const int freq = 5000;
+const int freq = 25000;
 const int ledChannel = 0;
 const int resolution = 8;
 
